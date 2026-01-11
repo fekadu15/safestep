@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:safestep/pages/home.dart';
+//import 'package:safestep/pages/home.dart';
 import 'package:safestep/pages/login.dart';
+//import 'package:safestep/pages/home.dart'; // import the HomePage
+//import 'package:safestep/pages/alerts.dart';
+import 'package:safestep/pages/map_page.dart';
+import 'package:safestep/pages/profile.dart';
 
 class SignUp extends StatefulWidget {
   const SignUp({super.key});
@@ -18,12 +24,22 @@ class _SignUpState extends State<SignUp> {
   String? emailError;
   String? passwordError;
 
-  void validateFields() {
+  void validateAndSubmit() {
     setState(() {
       nameError = nameController.text.isEmpty ? "Full Name is required" : null;
       emailError = emailController.text.isEmpty ? "Email is required" : null;
-      passwordError = passwordController.text.isEmpty ? "Password is required" : null;
+      passwordError = passwordController.text.isEmpty
+          ? "Password is required"
+          : null;
     });
+
+    // Navigate to HomePage if all fields are valid
+    if (nameError == null && emailError == null && passwordError == null) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const MapPage()),
+      );
+    }
   }
 
   @override
@@ -46,35 +62,27 @@ class _SignUpState extends State<SignUp> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-
                 const SizedBox(height: 8),
-
                 const Text(
                   "Sign up to stay safe on every step",
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Color(0xFF9CA3AF)),
                 ),
-
                 const SizedBox(height: 32),
-
                 _inputField(
                   hint: "Full Name",
                   icon: Icons.person,
                   controller: nameController,
                   errorText: nameError,
                 ),
-
                 const SizedBox(height: 16),
-
                 _inputField(
                   hint: "Email",
                   icon: Icons.email,
                   controller: emailController,
                   errorText: emailError,
                 ),
-
                 const SizedBox(height: 16),
-
                 _inputField(
                   hint: "Password",
                   icon: Icons.lock,
@@ -82,9 +90,7 @@ class _SignUpState extends State<SignUp> {
                   controller: passwordController,
                   errorText: passwordError,
                 ),
-
                 const SizedBox(height: 24),
-
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF22C55E),
@@ -93,7 +99,7 @@ class _SignUpState extends State<SignUp> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  onPressed: validateFields,
+                  onPressed: validateAndSubmit,
                   child: const Text(
                     "Sign Up",
                     style: TextStyle(
@@ -103,9 +109,7 @@ class _SignUpState extends State<SignUp> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 24),
-
                 Row(
                   children: const [
                     Expanded(child: Divider(color: Color(0xFF374151))),
@@ -119,9 +123,7 @@ class _SignUpState extends State<SignUp> {
                     Expanded(child: Divider(color: Color(0xFF374151))),
                   ],
                 ),
-
                 const SizedBox(height: 20),
-
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -131,7 +133,7 @@ class _SignUpState extends State<SignUp> {
                     ),
                   ),
                   onPressed: () {
-                    // later: Google sign-in logic
+                    // TODO: Google sign-in logic
                   },
                   icon: const FaIcon(
                     FontAwesomeIcons.google,
@@ -143,9 +145,7 @@ class _SignUpState extends State<SignUp> {
                     style: TextStyle(color: Colors.white),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
                 TextButton(
                   onPressed: () {
                     Navigator.push(

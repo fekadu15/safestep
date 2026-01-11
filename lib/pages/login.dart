@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:safestep/pages/sign_up.dart';
-
+import 'package:safestep/pages/report.dart';
 class Login extends StatefulWidget {
   const Login({super.key});
 
@@ -16,11 +16,22 @@ class _LoginState extends State<Login> {
   String? emailError;
   String? passwordError;
 
-  void validateFields() {
-    setState(() {
+  void validateAndSubmit() {
+     setState(() {
+      
       emailError = emailController.text.isEmpty ? "Email is required" : null;
-      passwordError = passwordController.text.isEmpty ? "Password is required" : null;
+      passwordError = passwordController.text.isEmpty
+          ? "Password is required"
+          : null;
     });
+
+    // Navigate to HomePage if all fields are valid
+    if ( emailError == null && passwordError == null) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const ReportPage()),
+      );
+    }
   }
 
   @override
@@ -81,7 +92,7 @@ class _LoginState extends State<Login> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  onPressed: validateFields,
+                  onPressed: validateAndSubmit,
                   child: const Text(
                     "Log In",
                     style: TextStyle(
