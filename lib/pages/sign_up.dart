@@ -1,12 +1,9 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:safestep/pages/home.dart';
-//import 'package:safestep/pages/home.dart';
 import 'package:safestep/pages/login.dart';
-//import 'package:safestep/pages/home.dart'; // import the HomePage
-//import 'package:safestep/pages/alerts.dart';
 import 'package:safestep/pages/map_page.dart';
-import 'package:safestep/pages/profile.dart';
+import 'package:safestep/services/auth_service.dart'; // Ensure this path is correct
 
 class SignUp extends StatefulWidget {
   const SignUp({super.key});
@@ -23,22 +20,73 @@ class _SignUpState extends State<SignUp> {
   String? nameError;
   String? emailError;
   String? passwordError;
+  bool isLoading = false;
 
-  void validateAndSubmit() {
+  /// Handles Email/Password Registration
+  void validateAndSubmit() async {
+    // 1. Reset Errors and start loading
     setState(() {
-      nameError = nameController.text.isEmpty ? "Full Name is required" : null;
-      emailError = emailController.text.isEmpty ? "Email is required" : null;
-      passwordError = passwordController.text.isEmpty
-          ? "Password is required"
-          : null;
+      nameError = nameController.text.trim().isEmpty ? "Full Name is required" : null;
+      emailError = emailController.text.trim().isEmpty ? "Email is required" : null;
+      passwordError = passwordController.text.trim().isEmpty ? "Password is required" : null;
     });
 
-    // Navigate to HomePage if all fields are valid
-    if (nameError == null && emailError == null && passwordError == null) {
+    if (nameError != null || emailError != null || passwordError != null) return;
+
+    setState(() => isLoading = true);
+
+    // 2. Call Auth Service
+    final result = await AuthService().signUp(
+      emailController.text.trim(),
+      passwordController.text.trim(),
+    );
+
+    // 3. Handle Result
+    if (result == "success") {
+      // Optional: Update user display name here if needed
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MapPage()),
+        );
+      }
+    } else {
+      setState(() {
+        isLoading = false;
+        // Specific Firebase Error Handling
+        if (result == 'email-already-in-use') {
+          emailError = "This email is already registered.";
+        } else if (result == 'weak-password') {
+          passwordError = "The password is too weak.";
+        } else if (result == 'invalid-email') {
+          emailError = "Please enter a valid email address.";
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Error: ${result ?? 'An unknown error occurred'}")),
+          );
+        }
+      });
+    }
+  }
+
+  /// Handles Google Sign In
+  void handleGoogleSignUp() async {
+    setState(() => isLoading = true);
+    
+    User? user = await AuthService().signInWithGoogle();
+    
+    if (user != null && mounted) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const MapPage()),
       );
+    } else {
+      setState(() => isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Google Sign-In failed or was cancelled.")),
+        );
+      }
     }
   }
 
@@ -69,6 +117,7 @@ class _SignUpState extends State<SignUp> {
                   style: TextStyle(color: Color(0xFF9CA3AF)),
                 ),
                 const SizedBox(height: 32),
+                
                 _inputField(
                   hint: "Full Name",
                   icon: Icons.person,
@@ -76,13 +125,16 @@ class _SignUpState extends State<SignUp> {
                   errorText: nameError,
                 ),
                 const SizedBox(height: 16),
+                
                 _inputField(
                   hint: "Email",
                   icon: Icons.email,
                   controller: emailController,
                   errorText: emailError,
+                  keyboardType: TextInputType.emailAddress,
                 ),
                 const SizedBox(height: 16),
+                
                 _inputField(
                   hint: "Password",
                   icon: Icons.lock,
@@ -91,6 +143,7 @@ class _SignUpState extends State<SignUp> {
                   errorText: passwordError,
                 ),
                 const SizedBox(height: 24),
+                
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF22C55E),
@@ -99,16 +152,23 @@ class _SignUpState extends State<SignUp> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  onPressed: validateAndSubmit,
-                  child: const Text(
-                    "Sign Up",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  onPressed: isLoading ? null : validateAndSubmit,
+                  child: isLoading 
+                    ? const SizedBox(
+                        height: 20, 
+                        width: 20, 
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                      )
+                    : const Text(
+                        "Sign Up",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                 ),
+                
                 const SizedBox(height: 24),
                 Row(
                   children: const [
@@ -124,6 +184,7 @@ class _SignUpState extends State<SignUp> {
                   ],
                 ),
                 const SizedBox(height: 20),
+                
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -132,9 +193,7 @@ class _SignUpState extends State<SignUp> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  onPressed: () {
-                    // TODO: Google sign-in logic
-                  },
+                  onPressed: isLoading ? null : handleGoogleSignUp,
                   icon: const FaIcon(
                     FontAwesomeIcons.google,
                     color: Colors.red,
@@ -145,6 +204,7 @@ class _SignUpState extends State<SignUp> {
                     style: TextStyle(color: Colors.white),
                   ),
                 ),
+                
                 const SizedBox(height: 16),
                 TextButton(
                   onPressed: () {
@@ -172,21 +232,27 @@ class _SignUpState extends State<SignUp> {
     bool obscure = false,
     TextEditingController? controller,
     String? errorText,
+    TextInputType keyboardType = TextInputType.text,
   }) {
     return TextField(
       controller: controller,
       obscureText: obscure,
+      keyboardType: keyboardType,
       style: const TextStyle(color: Colors.white),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
-        prefixIcon: Icon(icon, color: Color(0xFF9CA3AF)),
+        prefixIcon: Icon(icon, color: const Color(0xFF9CA3AF)),
         filled: true,
         fillColor: const Color(0xFF111827),
         errorText: errorText,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFF22C55E)),
         ),
       ),
     );

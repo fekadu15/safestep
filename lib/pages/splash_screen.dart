@@ -13,7 +13,7 @@ class _SplashScreenState extends State<SplashScreen> {
     super.initState();
 
     // Navigate after 3 seconds
-    Future.delayed(const Duration(seconds: 1), () {
+    Future.delayed(const Duration(seconds: 3), () {
       Navigator.pushReplacement(context,MaterialPageRoute(builder: (_) => const SignUp()), );
     });
   }
