@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart'; // Updated
-import 'package:latlong2/latlong.dart'; // Added for coordinates
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geolocator/geolocator.dart';
 
 class ReportPage extends StatefulWidget {
   const ReportPage({super.key});
@@ -12,167 +15,136 @@ class ReportPage extends StatefulWidget {
 class _ReportPageState extends State<ReportPage> {
   String? selectedType;
   final TextEditingController detailsController = TextEditingController();
-  
-  // Updated to LatLng from latlong2 package
-  static const LatLng _mapCenter = LatLng(40.7128, -74.0060);
+  LatLng _reportPosition = const LatLng(9.03, 38.74); 
+  bool _isLoadingLoc = true;
+  final MapController _mapController = MapController();
+
+  @override
+  void initState() {
+    super.initState();
+    _initReportLocation();
+  }
+
+  Future<void> _initReportLocation() async {
+    try {
+      Position pos = await Geolocator.getCurrentPosition();
+      setState(() {
+        _reportPosition = LatLng(pos.latitude, pos.longitude);
+        _isLoadingLoc = false;
+      });
+      _mapController.move(_reportPosition, 16);
+    } catch (_) {
+      setState(() => _isLoadingLoc = false);
+    }
+  }
+
+  Future<void> _submitReport() async {
+    if (selectedType == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select incident type")));
+      return;
+    }
+
+    // Show loading
+    showDialog(context: context, builder: (_) => const Center(child: CircularProgressIndicator()));
+
+    try {
+      await FirebaseFirestore.instance.collection('reports').add({
+        'type': selectedType,
+        'details': detailsController.text,
+        'location': GeoPoint(_reportPosition.latitude, _reportPosition.longitude),
+        'timestamp': FieldValue.serverTimestamp(),
+        'userId': FirebaseAuth.instance.currentUser?.uid,
+        'status': 'ACTIVE',
+      });
+
+      if (mounted) {
+        Navigator.pop(context); // Close loading
+        Navigator.pop(context); // Back to Home
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.green, content: Text("Report shared!")));
+      }
+    } catch (e) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121826),
+      backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          color: Colors.white54,
-          icon: const Icon(Icons.close),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          "Report Incident",
-          style: TextStyle(color: Colors.white54),
-        ),
-        centerTitle: true,
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 16),
-            child: Center(
-              child: Text(
-                "SOS",
-                style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
-        ],
+        title: const Text("Community Report", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        leading: IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.pop(context)),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // MAP PREVIEW (Updated to OpenStreetMap)
+            const Text("Pin Location", style: TextStyle(color: Colors.white70)),
+            const SizedBox(height: 10),
             Container(
-              height: 160,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-              ),
+              height: 200,
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(20)),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: FlutterMap(
-                  options: const MapOptions(
-                    initialCenter: _mapCenter,
-                    initialZoom: 14,
-                    interactionOptions: InteractionOptions(flags: InteractiveFlag.none), // Keeps preview static
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: _reportPosition,
+                    initialZoom: 16,
+                    onPositionChanged: (pos, _) => _reportPosition = pos.center, // Drag map to pin
                   ),
                   children: [
                     TileLayer(
                       urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.safestep.app',
+                      tileBuilder: (context, widget, tile) => ColorFiltered(
+                        colorFilter: const ColorFilter.matrix([0.21, 0.71, 0.07, 0, -160, 0.21, 0.71, 0.07, 0, -160, 0.21, 0.71, 0.07, 0, -160, 0, 0, 0, 1, 0]),
+                        child: widget,
+                      ),
                     ),
-                    const MarkerLayer(
-                      markers: [
-                        Marker(
-                          point: _mapCenter,
-                          width: 40,
-                          height: 40,
-                          child: Icon(Icons.location_on, color: Colors.red, size: 30),
-                        ),
-                      ],
-                    ),
+                    const Center(child: Icon(Icons.location_on, color: Colors.redAccent, size: 40)), // Center pin
                   ],
                 ),
               ),
             ),
-
-            const SizedBox(height: 20),
-
-            // TITLE
-            const Text(
-              "what happened ?",
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-
-            const SizedBox(height: 12), // Slightly increased for breathing room
-
-            // INCIDENT TYPES
+            const SizedBox(height: 25),
+            const Text("What did you see?", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 15),
             GridView.count(
               crossAxisCount: 2,
-              childAspectRatio: 1.8,
               shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
+              childAspectRatio: 2.5,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
               children: [
-                _incidentCard("Poor lighting", Icons.wb_sunny_outlined),
-                _incidentCard("Harassment", Icons.block),
-                _incidentCard("Suspicious", Icons.remove_red_eye_outlined),
-                _incidentCard("Accident", Icons.directions_car),
+                _typeCard("Poor lighting", Icons.wb_incandescent_outlined),
+                _typeCard("Harassment", Icons.warning_amber),
+                _typeCard("Suspicious", Icons.visibility),
+                _typeCard("Accident", Icons.car_crash),
               ],
             ),
-
-            const SizedBox(height: 24),
-              
-            // DETAILS
-            const Text(
-              "Details",
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 25),
             TextField(
               controller: detailsController,
-              maxLines: 4,
-              style: const TextStyle(color: Colors.white), // Changed to white for better readability
+              maxLines: 3,
+              style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
-                hintText: "Describe what happened ...(optional)",
-                hintStyle: const TextStyle(color: Colors.white54),
+                hintText: "Optional details...",
                 filled: true,
-                fillColor: const Color(0xFF1E2538),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide.none,
-                ),
+                fillColor: const Color(0xFF1E293B),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
               ),
             ),
-
-            const SizedBox(height: 16),
-
-            // ADD PHOTO
-            OutlinedButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.image, color: Colors.white),
-              label: const Text("Add Photo", style: TextStyle(color: Colors.white)),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Colors.white24),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-            ),
-
             const SizedBox(height: 30),
-
-            // SUBMIT BUTTON
             SizedBox(
               width: double.infinity,
               height: 55,
               child: ElevatedButton(
-                onPressed: () {
-                  debugPrint("Type: $selectedType");
-                  debugPrint("Details: ${detailsController.text}");
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2563EB),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                ),
-                child: const Text(
-                  "Submit",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18, 
-                    fontWeight: FontWeight.bold),
-                ),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, shape: StadiumBorder()),
+                onPressed: _submitReport,
+                child: const Text("SUBMIT REPORT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
             ),
           ],
@@ -181,27 +153,17 @@ class _ReportPageState extends State<ReportPage> {
     );
   }
 
-  Widget _incidentCard(String title, IconData icon) {
-    final bool isSelected = selectedType == title;
+  Widget _typeCard(String label, IconData icon) {
+    bool sel = selectedType == label;
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          selectedType = title;
-        });
-      },
+      onTap: () => setState(() => selectedType = label),
       child: Container(
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2563EB) : const Color(0xFF1E2538),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: Colors.white),
-            const SizedBox(height: 8),
-            Text(title, style: const TextStyle(color: Colors.white)),
-          ],
-        ),
+        decoration: BoxDecoration(color: sel ? Colors.blueAccent : const Color(0xFF1E293B), borderRadius: BorderRadius.circular(15)),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
+        ]),
       ),
     );
   }

@@ -2,8 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:safestep/pages/login.dart';
-import 'package:safestep/pages/map_page.dart';
-import 'package:safestep/services/auth_service.dart'; // Ensure this path is correct
+import 'package:safestep/pages/home.dart';
+import 'package:safestep/services/auth_service.dart';
 
 class SignUp extends StatefulWidget {
   const SignUp({super.key});
@@ -47,7 +47,7 @@ class _SignUpState extends State<SignUp> {
       if (mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const MapPage()),
+          MaterialPageRoute(builder: (context) => const HomePage()),
         );
       }
     } else {
@@ -78,7 +78,7 @@ class _SignUpState extends State<SignUp> {
     if (user != null && mounted) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const MapPage()),
+        MaterialPageRoute(builder: (context) => const HomePage()),
       );
     } else {
       setState(() => isLoading = false);

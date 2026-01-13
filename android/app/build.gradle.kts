@@ -1,7 +1,3 @@
-// -------------------------------
-// App-level build.gradle.kts
-// -------------------------------
-
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -46,12 +42,10 @@ dependencies {
     // Kotlin stdlib
     implementation("org.jetbrains.kotlin:kotlin-stdlib:1.8.20")
 
-    // Firebase BoM
-    implementation(platform("com.google.firebase:firebase-bom:32.1.1"))
+    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
 
-    // Firebase Analytics
-    implementation("com.google.firebase:firebase-analytics-ktx")
+    
+    implementation("com.google.firebase:firebase-analytics-ktx:21.5.0")
 
-    // Google Maps SDK
     implementation("com.google.android.gms:play-services-maps:18.1.0")
 }

@@ -4,30 +4,29 @@ import 'package:flutter/material.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  
-  // Using the singleton instance for v7.2.0
   final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
 
-  // --- GOOGLE SIGN IN ---
   Future<User?> signInWithGoogle() async {
     try {
-      // 1. Trigger the selection UI using the new authenticate method
-      final GoogleSignInAccount? googleUser = await _googleSignIn.authenticate();
-      
-      if (googleUser == null) return null; // User closed the popup
+      await _googleSignIn.initialize(
+        serverClientId:
+            '280130887058-esor5f02rsh99clmo3vpr9i3a4fkndtq.apps.googleusercontent.com',
+      );
 
-      // 2. Get the auth details
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final GoogleSignInAccount? googleUser = await _googleSignIn
+          .authenticate();
+      if (googleUser == null) return null;
 
-      // 3. Create the credential for Firebase
-      // FIX: In v7.2.0+, use 'token' instead of 'accessToken'
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
       final AuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.idToken, 
         idToken: googleAuth.idToken,
       );
 
-      // 4. Sign in to Firebase
-      UserCredential userCredential = await _auth.signInWithCredential(credential);
+      UserCredential userCredential = await _auth.signInWithCredential(
+        credential,
+      );
       return userCredential.user;
     } catch (e) {
       debugPrint("Google Sign-In Error: $e");
@@ -35,12 +34,11 @@ class AuthService {
     }
   }
 
-  // --- EMAIL SIGN UP ---
   Future<String?> signUp(String email, String password) async {
     try {
       await _auth.createUserWithEmailAndPassword(
-        email: email, 
-        password: password
+        email: email,
+        password: password,
       );
       return "success";
     } on FirebaseAuthException catch (e) {
@@ -53,10 +51,7 @@ class AuthService {
   // --- EMAIL LOGIN ---
   Future<String?> login(String email, String password) async {
     try {
-      await _auth.signInWithEmailAndPassword(
-        email: email, 
-        password: password
-      );
+      await _auth.signInWithEmailAndPassword(email: email, password: password);
       return "success";
     } on FirebaseAuthException catch (e) {
       return e.code;
@@ -75,6 +70,5 @@ class AuthService {
     }
   }
 
-  // --- HELPER: GET CURRENT USER ---
   User? get currentUser => _auth.currentUser;
 }

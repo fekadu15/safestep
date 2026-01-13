@@ -2,7 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:safestep/pages/sign_up.dart';
-import 'package:safestep/pages/map_page.dart'; // Redirect to MapPage after login
+import 'package:safestep/pages/home.dart'; // Redirect to MapPage after login
 import 'package:safestep/services/auth_service.dart';
 
 class Login extends StatefulWidget {
@@ -23,8 +23,12 @@ class _LoginState extends State<Login> {
   void validateAndSubmit() async {
     // 1. Reset UI Errors
     setState(() {
-      emailError = emailController.text.trim().isEmpty ? "Email is required" : null;
-      passwordError = passwordController.text.trim().isEmpty ? "Password is required" : null;
+      emailError = emailController.text.trim().isEmpty
+          ? "Email is required"
+          : null;
+      passwordError = passwordController.text.trim().isEmpty
+          ? "Password is required"
+          : null;
     });
 
     if (emailError != null || passwordError != null) return;
@@ -42,7 +46,7 @@ class _LoginState extends State<Login> {
       if (mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const MapPage()),
+          MaterialPageRoute(builder: (context) => const HomePage()),
         );
       }
     } else {
@@ -59,7 +63,9 @@ class _LoginState extends State<Login> {
           emailError = "This account has been disabled.";
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Login failed: ${result ?? 'Unknown error'}")),
+            SnackBar(
+              content: Text("Login failed: ${result ?? 'Unknown error'}"),
+            ),
           );
         }
       });
@@ -67,15 +73,23 @@ class _LoginState extends State<Login> {
   }
 
   void handleGoogleLogin() async {
+    print("GOOGLE LOGIN STARTED");
     setState(() => isLoading = true);
+
     User? user = await AuthService().signInWithGoogle();
-    
-    if (user != null && mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const MapPage()),
-      );
+
+    print("GOOGLE LOGIN RESULT: $user");
+
+    if (user != null) {
+      print("USER NOT NULL → NAVIGATING TO HOME");
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomePage()),
+        );
+      }
     } else {
+      print("GOOGLE LOGIN FAILED → USER NULL");
       setState(() => isLoading = false);
     }
   }
@@ -107,7 +121,7 @@ class _LoginState extends State<Login> {
                   style: TextStyle(color: Color(0xFF9CA3AF)),
                 ),
                 const SizedBox(height: 32),
-                
+
                 _inputField(
                   hint: "Email",
                   icon: Icons.email,
@@ -116,7 +130,7 @@ class _LoginState extends State<Login> {
                   keyboardType: TextInputType.emailAddress,
                 ),
                 const SizedBox(height: 16),
-                
+
                 _inputField(
                   hint: "Password",
                   icon: Icons.lock,
@@ -125,7 +139,7 @@ class _LoginState extends State<Login> {
                   errorText: passwordError,
                 ),
                 const SizedBox(height: 24),
-                
+
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF22C55E),
@@ -135,23 +149,26 @@ class _LoginState extends State<Login> {
                     ),
                   ),
                   onPressed: isLoading ? null : validateAndSubmit,
-                  child: isLoading 
-                    ? const SizedBox(
-                        height: 20, 
-                        width: 20, 
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                      )
-                    : const Text(
-                        "Log In",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                  child: isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Text(
+                          "Log In",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
                 ),
                 const SizedBox(height: 24),
-                
+
                 Row(
                   children: const [
                     Expanded(child: Divider(color: Color(0xFF374151))),
@@ -166,7 +183,7 @@ class _LoginState extends State<Login> {
                   ],
                 ),
                 const SizedBox(height: 20),
-                
+
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -187,7 +204,7 @@ class _LoginState extends State<Login> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                
+
                 TextButton(
                   onPressed: () {
                     Navigator.push(
