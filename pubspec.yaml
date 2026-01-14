@@ -15,7 +15,6 @@ dependencies:
   flutter_map: ^8.0.0
   latlong2: ^0.9.1
   geocoding: ^3.0.0
-  
   # Core Firebase (Unified Generation)
   firebase_core: ^3.10.1
   

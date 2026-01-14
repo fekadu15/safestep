@@ -6,6 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:safestep/pages/home.dart';
 import 'package:safestep/services/auth_service.dart';
+import 'package:safestep/pages/admin_dashboard.dart'; // Make sure this import is correct
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -18,7 +19,9 @@ class _ProfilePageState extends State<ProfilePage> {
   final User? user = FirebaseAuth.instance.currentUser;
   bool _isUploading = false;
 
-  // --- Logic: Upload Image to Firebase Storage ---
+  // --- REPLACE THIS WITH YOUR ACTUAL UID FROM FIREBASE AUTH ---
+  final String _adminUid = "mVfRKSbuEHPeGwPzyvdhLkRbiq33"; 
+
   Future<void> _uploadImage() async {
     final picker = ImagePicker();
     final XFile? pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
@@ -59,9 +62,9 @@ class _ProfilePageState extends State<ProfilePage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text("Edit Profile", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-            TextField(controller: name, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Full Name")),
-            TextField(controller: phone, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Phone")),
-            TextField(controller: emg, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Emergency Contact")),
+            TextField(controller: name, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Full Name", labelStyle: TextStyle(color: Colors.white70))),
+            TextField(controller: phone, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Phone", labelStyle: TextStyle(color: Colors.white70))),
+            TextField(controller: emg, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Emergency Contact", labelStyle: TextStyle(color: Colors.white70))),
             const SizedBox(height: 20),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, minimumSize: const Size(double.infinity, 50)),
@@ -107,7 +110,7 @@ class _ProfilePageState extends State<ProfilePage> {
             padding: const EdgeInsets.all(25),
             child: Column(
               children: [
-                // Avatar Section
+                // --- Avatar Section ---
                 Stack(
                   children: [
                     CircleAvatar(
@@ -132,16 +135,26 @@ class _ProfilePageState extends State<ProfilePage> {
                 Text(data['fullName'] ?? user?.displayName ?? "User", style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
                 Text(user?.email ?? "", style: const TextStyle(color: Colors.white54)),
                 
-                const SizedBox(height: 40),
-                  
+                const SizedBox(height: 30),
 
+                // --- Admin Section (Hidden from normal users) ---
+                if (user?.uid == _adminUid) ...[
+                  _adminCard(),
+                  const SizedBox(height: 20),
+                ],
+
+                // --- Info Cards ---
                 _infoCard(Icons.phone, "Phone", data['phoneNumber'] ?? "Not added"),
                 _infoCard(Icons.contact_emergency, "Emergency", data['emergencyContact'] ?? "Not added"),
                 
                 const SizedBox(height: 30),
                 
                 ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent.withOpacity(0.1), minimumSize: const Size(double.infinity, 55), side: const BorderSide(color: Colors.blueAccent)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent.withOpacity(0.1), 
+                    minimumSize: const Size(double.infinity, 55), 
+                    side: const BorderSide(color: Colors.blueAccent)
+                  ),
                   onPressed: () => _editProfile(data),
                   child: const Text("EDIT PROFILE", style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
                 ),
@@ -159,6 +172,26 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  // Admin Dashboard Entry Widget
+  Widget _adminCard() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [Colors.amber.shade700, Colors.orange.shade900]),
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: ListTile(
+        leading: const Icon(Icons.admin_panel_settings, color: Colors.white, size: 30),
+        title: const Text("ADMIN COMMAND CENTER", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+        subtitle: const Text("Monitor community alerts & SOS", style: TextStyle(color: Colors.white70, fontSize: 12)),
+        trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 18),
+        onTap: () => Navigator.push(
+          context, 
+          MaterialPageRoute(builder: (context) => const AdminDashboard())
+        ),
       ),
     );
   }
