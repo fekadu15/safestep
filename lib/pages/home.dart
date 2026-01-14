@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert'; // JSON decoding
+import 'package:http/http.dart' as http; // API calls
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -29,9 +31,10 @@ class _HomePageState extends State<HomePage> {
   LatLng _currentLocation = const LatLng(9.03, 38.74);
   List<LatLng> _routePoints = [];
 
-  String _currentAddress = "Locating...";
+  String _currentAddress = " where to go...";
   bool _isLoading = true;
   bool _showRouteInputs = false;
+  bool _isCalculatingRoute = false; // For loading spinner
 
   StreamSubscription<Position>? _positionStream;
   StreamSubscription<QuerySnapshot>? _emergencySubscription;
@@ -52,7 +55,66 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  // --- EMERGENCY LISTENER: WATCH FOR NEW SOS ---
+  // --- STREET-FOLLOWING ROUTE LOGIC (OSRM) ---
+  Future<void> _getStreetRoute(LatLng start, LatLng end) async {
+    setState(() => _isCalculatingRoute = true);
+
+    final url =
+        'https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson';
+
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List<dynamic> coords = data['routes'][0]['geometry']['coordinates'];
+
+        setState(() {
+          _routePoints = coords.map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint("Routing Error: $e");
+      setState(() => _routePoints = [start, end]);
+    } finally {
+      setState(() => _isCalculatingRoute = false);
+    }
+  }
+
+  // --- SAFETY BRAIN: CHECK FOR NEARBY HAZARDS ---
+  void _checkRouteSafety(LatLng destination) {
+    FirebaseFirestore.instance.collection('reports').get().then((snapshot) {
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        GeoPoint hazardLoc = data['location'];
+        
+        double distance = Geolocator.distanceBetween(
+          destination.latitude, destination.longitude, 
+          hazardLoc.latitude, hazardLoc.longitude
+        );
+
+        if (distance < 500) { // If hazard is within 500 meters
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.orange.shade900,
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.only(bottom: 100, left: 10, right: 10),
+              content: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.white),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text("⚠️ Safety Warning: Route ends near a ${data['type']}!")),
+                ],
+              ),
+              duration: const Duration(seconds: 6),
+            )
+          );
+          break; // Show only one warning
+        }
+      }
+    });
+  }
+
+  // --- EMERGENCY LISTENER ---
   void _startEmergencyListener() {
     _emergencySubscription = FirebaseFirestore.instance
         .collection('emergency_alerts')
@@ -62,7 +124,6 @@ class _HomePageState extends State<HomePage> {
       for (var change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.added) {
           final data = change.doc.data() as Map<String, dynamic>;
-          // Don't notify the user about their own SOS
           if (data['userId'] != user?.uid) {
             _showTopNotification(data, change.doc.id);
           }
@@ -87,7 +148,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // --- MARKERS LAYER (SOS + HAZARDS) ---
+  // --- MARKERS LAYER ---
   Widget _buildMarkersLayer() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('reports').snapshots(),
@@ -95,19 +156,16 @@ class _HomePageState extends State<HomePage> {
         return StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
               .collection('emergency_alerts')
-              .where('status', whereIn: const ['ACTIVE', 'RESPONDING']) 
-              .snapshots(),
+              .where('status', whereIn: const ['ACTIVE', 'RESPONDING']).snapshots(),
           builder: (context, sosSnap) {
             List<Marker> markers = [];
 
-            // 1. Current User Marker
             markers.add(Marker(
               point: _currentLocation,
               width: 60, height: 60,
               child: const Icon(Icons.my_location, color: Colors.blueAccent, size: 30),
             ));
 
-            // 2. Orange Hazard Markers
             if (reportSnap.hasData) {
               for (var doc in reportSnap.data!.docs) {
                 final data = doc.data() as Map<String, dynamic>;
@@ -122,23 +180,18 @@ class _HomePageState extends State<HomePage> {
               }
             }
 
-            // 3. Red/Green SOS Markers
             if (sosSnap.hasData) {
               for (var doc in sosSnap.data!.docs) {
                 final data = doc.data() as Map<String, dynamic>;
                 final GeoPoint loc = data['location'];
                 final bool isResponding = data['status'] == 'RESPONDING';
-                
+
                 markers.add(Marker(
                   point: LatLng(loc.latitude, loc.longitude),
                   width: 50, height: 50,
                   child: GestureDetector(
                     onTap: () => _showEmergencyDetails(data, doc.id),
-                    child: Icon(
-                      Icons.emergency, 
-                      color: isResponding ? Colors.green : Colors.red, 
-                      size: 40
-                    ),
+                    child: Icon(Icons.emergency, color: isResponding ? Colors.green : Colors.red, size: 40),
                   ),
                 ));
               }
@@ -150,7 +203,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // --- UI: BOTTOM SHEETS ---
   void _showReportDetails(Map<String, dynamic> data) {
     showModalBottomSheet(
       context: context,
@@ -183,17 +235,12 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              isAlreadyResponding ? Icons.verified_user : Icons.bolt, 
-              color: isAlreadyResponding ? Colors.greenAccent : Colors.yellowAccent, 
-              size: 50
-            ),
+            Icon(isAlreadyResponding ? Icons.verified_user : Icons.bolt,
+                color: isAlreadyResponding ? Colors.greenAccent : Colors.yellowAccent, size: 50),
             const SizedBox(height: 10),
             Text("${data['userName']} needs help", style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-            Text(
-              isAlreadyResponding ? "Help is already on the way." : "Are you able to assist this person?", 
-              style: const TextStyle(color: Colors.white60)
-            ),
+            Text(isAlreadyResponding ? "Help is already on the way." : "Are you able to assist this person?",
+                style: const TextStyle(color: Colors.white60)),
             const SizedBox(height: 30),
             Row(
               children: [
@@ -216,7 +263,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // --- ACTION: ACKNOWLEDGE SOS ---
   Future<void> _acknowledgeEmergency(Map<String, dynamic> data, String docId) async {
     final GeoPoint loc = data['location'];
     final LatLng victimLoc = LatLng(loc.latitude, loc.longitude);
@@ -229,9 +275,8 @@ class _HomePageState extends State<HomePage> {
 
     if (mounted) {
       Navigator.pop(context);
-      setState(() {
-        _routePoints = [_currentLocation, victimLoc];
-      });
+      await _getStreetRoute(_currentLocation, victimLoc); 
+      _checkRouteSafety(victimLoc); // Check if rescue path is safe
 
       _mapController.fitCamera(
         CameraFit.bounds(
@@ -242,7 +287,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // --- LOCATION SERVICES ---
   Future<void> _initLocation() async {
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
@@ -261,7 +305,6 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         setState(() {
           _currentLocation = LatLng(pos.latitude, pos.longitude);
-          if (_routePoints.isNotEmpty) _routePoints[0] = _currentLocation;
         });
       }
     });
@@ -279,10 +322,13 @@ class _HomePageState extends State<HomePage> {
       List<Location> s = await locationFromAddress(_startController.text);
       List<Location> d = await locationFromAddress(_destController.text);
       if (s.isNotEmpty && d.isNotEmpty) {
-        setState(() {
-          _routePoints = [LatLng(s.first.latitude, s.first.longitude), LatLng(d.first.latitude, d.first.longitude)];
-          _showRouteInputs = false;
-        });
+        final start = LatLng(s.first.latitude, s.first.longitude);
+        final end = LatLng(d.first.latitude, d.first.longitude);
+
+        await _getStreetRoute(start, end);
+        _checkRouteSafety(end); // NEW SAFETY CHECK CALL
+
+        setState(() => _showRouteInputs = false);
         _mapController.fitCamera(CameraFit.bounds(bounds: LatLngBounds.fromPoints(_routePoints), padding: const EdgeInsets.all(50)));
       }
     } catch (e) {
@@ -294,67 +340,79 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
-      body: _isLoading ? const Center(child: CircularProgressIndicator()) : Stack(
-        children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(initialCenter: _currentLocation, initialZoom: 17),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                tileBuilder: (context, widget, tile) => ColorFiltered(
-                  colorFilter: const ColorFilter.matrix([0.21, 0.71, 0.07, 0, -160, 0.21, 0.71, 0.07, 0, -160, 0.21, 0.71, 0.07, 0, -160, 0, 0, 0, 1, 0]),
-                  child: widget,
-                ),
-              ),
-              if (_routePoints.isNotEmpty) 
-                PolylineLayer(polylines: [
-                  Polyline(points: _routePoints, color: Colors.blueAccent, strokeWidth: 5, strokeCap: StrokeCap.round)
-                ]),
-              _buildMarkersLayer(),
-            ],
-          ),
-
-          // --- ZOOM CONTROLS ---
-          Positioned(
-            right: 20,
-            bottom: 220,
-            child: Column(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Stack(
               children: [
-                FloatingActionButton.small(
-                  heroTag: "zoom_in",
-                  backgroundColor: const Color(0xFF1E293B),
-                  child: const Icon(Icons.add, color: Colors.white),
-                  onPressed: () => _mapController.move(_mapController.camera.center, _mapController.camera.zoom + 1),
+                FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(initialCenter: _currentLocation, initialZoom: 17),
+                  children: [
+                    TileLayer(
+                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      tileBuilder: (context, widget, tile) => ColorFiltered(
+                        colorFilter: const ColorFilter.matrix([
+                          0.21, 0.71, 0.07, 0, -160, 
+                          0.21, 0.71, 0.07, 0, -160, 
+                          0.21, 0.71, 0.07, 0, -160, 
+                          0, 0, 0, 1, 0
+                        ]),
+                        child: widget,
+                      ),
+                    ),
+                    if (_routePoints.isNotEmpty)
+                      PolylineLayer(polylines: [
+                        Polyline(
+                            points: _routePoints,
+                            color: Colors.blueAccent,
+                            strokeWidth: 5,
+                            strokeCap: StrokeCap.round)
+                      ]),
+                    _buildMarkersLayer(),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                FloatingActionButton.small(
-                  heroTag: "zoom_out",
-                  backgroundColor: const Color(0xFF1E293B),
-                  child: const Icon(Icons.remove, color: Colors.white),
-                  onPressed: () => _mapController.move(_mapController.camera.center, _mapController.camera.zoom - 1),
+
+                if (_isCalculatingRoute)
+                  const Center(child: CircularProgressIndicator(color: Colors.blueAccent)),
+
+                Positioned(
+                  right: 20,
+                  bottom: 220,
+                  child: Column(
+                    children: [
+                      FloatingActionButton.small(
+                        heroTag: "zoom_in",
+                        backgroundColor: const Color(0xFF1E293B),
+                        child: const Icon(Icons.add, color: Colors.white),
+                        onPressed: () => _mapController.move(_mapController.camera.center, _mapController.camera.zoom + 1),
+                      ),
+                      const SizedBox(height: 8),
+                      FloatingActionButton.small(
+                        heroTag: "zoom_out",
+                        backgroundColor: const Color(0xFF1E293B),
+                        child: const Icon(Icons.remove, color: Colors.white),
+                        onPressed: () => _mapController.move(_mapController.camera.center, _mapController.camera.zoom - 1),
+                      ),
+                    ],
+                  ),
+                ),
+
+                SafeArea(
+                  child: Column(children: [
+                    _buildHeader(),
+                    if (_showRouteInputs) _buildRouteSearchBox(),
+                    const Spacer(),
+                    _buildSafeCircleStream(),
+                    const SOSButton(),
+                    const SizedBox(height: 10),
+                  ]),
                 ),
               ],
             ),
-          ),
-
-          SafeArea(
-            child: Column(children: [
-              _buildHeader(),
-              if (_showRouteInputs) _buildRouteSearchBox(),
-              const Spacer(),
-              _buildSafeCircleStream(),
-              const SOSButton(),
-              const SizedBox(height: 10),
-            ]),
-          ),
-        ],
-      ),
       bottomNavigationBar: _buildBottomNav(),
     );
   }
 
-  // --- UPDATED HEADER WITH LIVE PROFILE PHOTO ---
   Widget _buildHeader() {
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -374,24 +432,22 @@ class _HomePageState extends State<HomePage> {
               ]),
             ),
           ),
-          
           StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
-            builder: (context, snapshot) {
-              final userData = snapshot.data?.data() as Map<String, dynamic>?;
-              final photoUrl = userData?['photoUrl'];
+              stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
+              builder: (context, snapshot) {
+                final userData = snapshot.data?.data() as Map<String, dynamic>?;
+                final photoUrl = userData?['photoUrl'];
 
-              return GestureDetector(
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfilePage())),
-                child: CircleAvatar(
-                  radius: 22,
-                  backgroundColor: const Color(0xFF1E293B),
-                  backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
-                  child: photoUrl == null ? const Icon(Icons.person, color: Colors.white) : null,
-                ),
-              );
-            }
-          ),
+                return GestureDetector(
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfilePage())),
+                  child: CircleAvatar(
+                    radius: 22,
+                    backgroundColor: const Color(0xFF1E293B),
+                    backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+                    child: photoUrl == null ? const Icon(Icons.person, color: Colors.white) : null,
+                  ),
+                );
+              }),
         ],
       ),
     );
@@ -436,9 +492,9 @@ class _HomePageState extends State<HomePage> {
       unselectedItemColor: Colors.white38,
       currentIndex: 0,
       items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"), 
+        BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
         BottomNavigationBarItem(icon: Icon(Icons.notifications_none_rounded), label: "Alerts"),
-        BottomNavigationBarItem(icon: Icon(Icons.add_location_alt_outlined), label: "Report"), 
+        BottomNavigationBarItem(icon: Icon(Icons.add_location_alt_outlined), label: "Report"),
         BottomNavigationBarItem(icon: Icon(Icons.person_2_outlined), label: "Profile"),
       ],
       onTap: (i) {
@@ -460,10 +516,9 @@ class _HomePageState extends State<HomePage> {
         TextField(controller: _destController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(hintText: "Where to?", hintStyle: TextStyle(color: Colors.white24), border: InputBorder.none)),
         const SizedBox(height: 15),
         ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, minimumSize: const Size(double.infinity, 45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-          onPressed: _findRoute, 
-          child: const Text("Show Route", style: TextStyle(color: Colors.white))
-        ),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, minimumSize: const Size(double.infinity, 45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            onPressed: _findRoute,
+            child: const Text("Show Route", style: TextStyle(color: Colors.white))),
       ]),
     );
   }
