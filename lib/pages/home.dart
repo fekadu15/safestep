@@ -52,7 +52,7 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  // --- EMERGENCY LISTENER ---
+  // --- EMERGENCY LISTENER: WATCH FOR NEW SOS ---
   void _startEmergencyListener() {
     _emergencySubscription = FirebaseFirestore.instance
         .collection('emergency_alerts')
@@ -62,6 +62,7 @@ class _HomePageState extends State<HomePage> {
       for (var change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.added) {
           final data = change.doc.data() as Map<String, dynamic>;
+          // Don't notify the user about their own SOS
           if (data['userId'] != user?.uid) {
             _showTopNotification(data, change.doc.id);
           }
@@ -86,7 +87,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // --- MARKERS LAYER ---
+  // --- MARKERS LAYER (SOS + HAZARDS) ---
   Widget _buildMarkersLayer() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('reports').snapshots(),
@@ -99,12 +100,14 @@ class _HomePageState extends State<HomePage> {
           builder: (context, sosSnap) {
             List<Marker> markers = [];
 
+            // 1. Current User Marker
             markers.add(Marker(
               point: _currentLocation,
               width: 60, height: 60,
               child: const Icon(Icons.my_location, color: Colors.blueAccent, size: 30),
             ));
 
+            // 2. Orange Hazard Markers
             if (reportSnap.hasData) {
               for (var doc in reportSnap.data!.docs) {
                 final data = doc.data() as Map<String, dynamic>;
@@ -119,6 +122,7 @@ class _HomePageState extends State<HomePage> {
               }
             }
 
+            // 3. Red/Green SOS Markers
             if (sosSnap.hasData) {
               for (var doc in sosSnap.data!.docs) {
                 final data = doc.data() as Map<String, dynamic>;
@@ -311,7 +315,7 @@ class _HomePageState extends State<HomePage> {
             ],
           ),
 
-          // --- ZOOM BUTTONS (RESTORED) ---
+          // --- ZOOM CONTROLS ---
           Positioned(
             right: 20,
             bottom: 220,
@@ -350,6 +354,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // --- UPDATED HEADER WITH LIVE PROFILE PHOTO ---
   Widget _buildHeader() {
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -369,11 +374,23 @@ class _HomePageState extends State<HomePage> {
               ]),
             ),
           ),
-          FloatingActionButton.small(
-            heroTag: "campaign_btn",
-            backgroundColor: const Color(0xFF1E293B),
-            child: const Icon(Icons.campaign, color: Colors.blueAccent),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportPage())),
+          
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
+            builder: (context, snapshot) {
+              final userData = snapshot.data?.data() as Map<String, dynamic>?;
+              final photoUrl = userData?['photoUrl'];
+
+              return GestureDetector(
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfilePage())),
+                child: CircleAvatar(
+                  radius: 22,
+                  backgroundColor: const Color(0xFF1E293B),
+                  backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+                  child: photoUrl == null ? const Icon(Icons.person, color: Colors.white) : null,
+                ),
+              );
+            }
           ),
         ],
       ),
@@ -411,7 +428,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // --- ICONS RESTORED HERE ---
   Widget _buildBottomNav() {
     return BottomNavigationBar(
       type: BottomNavigationBarType.fixed,

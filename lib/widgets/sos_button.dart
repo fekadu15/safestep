@@ -8,28 +8,29 @@ import 'package:safestep/pages/alerts.dart';
 class SOSButton extends StatelessWidget {
   const SOSButton({super.key});
 
-  /// 1. Triggers the physical phone call
   Future<void> _makeEmergencyCall() async {
-    // Using 911/991/912 depending on your region
     final Uri telUri = Uri.parse('tel:912'); 
     if (await canLaunchUrl(telUri)) {
       await launchUrl(telUri);
     }
   }
 
-  /// 2. Logs the emergency in Firebase for the community/SafeCircle
   Future<void> _logEmergencyToFirebase(BuildContext context) async {
     try {
       final User? user = FirebaseAuth.instance.currentUser;
-      
-      // Get precise location at the moment of the SOS
+      if (user == null) return;
+
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userData = userDoc.data();
+
       Position position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
       );
 
       await FirebaseFirestore.instance.collection('emergency_alerts').add({
-        'userId': user?.uid,
-        'userName': user?.displayName ?? "User in Distress",
+        'userId': user.uid,
+        'userName': userData?['name'] ?? user.displayName ?? "User in Distress",
+        'userPhoto': userData?['photoUrl'] ?? "", 
         'location': GeoPoint(position.latitude, position.longitude),
         'timestamp': FieldValue.serverTimestamp(),
         'status': 'ACTIVE',
@@ -43,16 +44,15 @@ class SOSButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onLongPress: () async {
-        // Provide haptic/visual feedback immediately
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("EMERGENCY TRIGGERED: BROADCASTING LOCATION..."), 
+            content: Text("🚨 SOS TRIGGERED: BROADCASTING LOCATION..."), 
             backgroundColor: Colors.red,
-            duration: Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 4),
           ),
         );
 
-        // Run both actions
         await Future.wait([
           _logEmergencyToFirebase(context),
           _makeEmergencyCall(),
@@ -65,37 +65,51 @@ class SOSButton extends StatelessWidget {
       child: Container(
         width: double.infinity,
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        height: 70,
+        height: 75, 
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             colors: [Color(0xFFEF4444), Color(0xFFB91C1C)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
               color: Colors.red.withOpacity(0.4), 
-              blurRadius: 20, 
-              spreadRadius: 2,
-              offset: const Offset(0, 4),
+              blurRadius: 15, 
+              spreadRadius: 1,
+              offset: const Offset(0, 8),
             )
           ],
         ),
-        child: const Center(
+        child: Center( // Removed 'const' from here
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.emergency_share, color: Colors.white, size: 28),
-              SizedBox(width: 12),
+              const Icon(Icons.bolt_rounded, color: Colors.white, size: 32),
+              const SizedBox(width: 15),
               Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("HOLD FOR SOS", 
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                  Text("DIALS EMERGENCY & ALERTS CIRCLE", 
-                    style: TextStyle(color: Colors.white70, fontSize: 10)),
+                  Text(
+                     "HOLD FOR SOS", 
+                    style: TextStyle(
+                   color: Colors.white, 
+                       fontSize: 20, 
+                     fontWeight: FontWeight.w900, // Replaced 'black' with 'w900'
+                    letterSpacing: 1.1,
+                    ),
+                     ),
+                  
+                  const Text(
+                    "DIALS 912 & ALERTS COMMUNITY", 
+                    style: TextStyle(
+                      color: Colors.white70, 
+                      fontSize: 10, 
+                      fontWeight: FontWeight.w500
+                    ),
+                  ),
                 ],
               ),
             ],

@@ -1,25 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart'; 
 import 'package:safestep/pages/home.dart';
 import 'package:safestep/pages/profile.dart';
 import 'package:safestep/pages/report.dart';
 
 class AlertsPage extends StatefulWidget {
   const AlertsPage({super.key});
-
   @override
   State<AlertsPage> createState() => _AlertsPageState();
 }
 
 class _AlertsPageState extends State<AlertsPage> {
-  // Matches index 1 in the shared bottom navigation
   final int _currentIndex = 1;
+  final User? currentUser = FirebaseAuth.instance.currentUser;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A), // Updated to match Home background
+      backgroundColor: const Color(0xFF0F172A), 
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -39,9 +39,11 @@ class _AlertsPageState extends State<AlertsPage> {
             const SizedBox(height: 20),
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
+                // UPDATE: Removed .orderBy here to prevent the "disappearing" bug
+                // We will sort manually in the builder instead.
                 stream: FirebaseFirestore.instance
                     .collection('emergency_alerts')
-                    .orderBy('timestamp', descending: true)
+                    .where('status', whereIn: ['ACTIVE', 'RESPONDING'])
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
@@ -52,13 +54,23 @@ class _AlertsPageState extends State<AlertsPage> {
                     return _buildNoAlertsPlaceholder();
                   }
 
+                  // UPDATE: Manual sort to handle the "null timestamp" during upload
+                  final docs = snapshot.data!.docs.toList();
+                  docs.sort((a, b) {
+                    final aTime = (a.data() as Map)['timestamp'] as Timestamp?;
+                    final bTime = (b.data() as Map)['timestamp'] as Timestamp?;
+                    if (aTime == null) return -1; // Newest (null) at top
+                    if (bTime == null) return 1;
+                    return bTime.compareTo(aTime);
+                  });
+
                   return ListView.builder(
-                    itemCount: snapshot.data!.docs.length,
+                    itemCount: docs.length,
                     physics: const BouncingScrollPhysics(),
                     itemBuilder: (context, index) {
-                      var doc = snapshot.data!.docs[index];
+                      var doc = docs[index];
                       var data = doc.data() as Map<String, dynamic>;
-                      return _buildLiveAlertCard(data);
+                      return _buildLiveAlertCard(data, doc.id);
                     },
                   );
                 },
@@ -93,23 +105,24 @@ class _AlertsPageState extends State<AlertsPage> {
     );
   }
 
-  Widget _buildLiveAlertCard(Map<String, dynamic> data) {
+  Widget _buildLiveAlertCard(Map<String, dynamic> data, String docId) {
+    // UPDATE: Use current time as fallback if Firestore hasn't set the server time yet
     DateTime time = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
     String formattedTime = DateFormat('jm').format(time);
     
-    // Status Logic
     String status = data['status'] ?? "ACTIVE";
     bool isResponding = status == "RESPONDING";
+    bool isMyAlert = data['userId'] == currentUser?.uid;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: isMyAlert ? const Color(0xFF1E1B4B) : const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isResponding ? Colors.greenAccent.withOpacity(0.3) : Colors.redAccent.withOpacity(0.2),
-          width: 1,
+          color: isMyAlert ? Colors.blueAccent : (isResponding ? Colors.greenAccent.withOpacity(0.3) : Colors.redAccent.withOpacity(0.2)),
+          width: 1.5,
         ),
       ),
       child: Column(
@@ -121,14 +134,14 @@ class _AlertsPageState extends State<AlertsPage> {
               Row(
                 children: [
                   Icon(
-                    isResponding ? Icons.verified_user : Icons.warning_amber_rounded,
-                    color: isResponding ? Colors.greenAccent : Colors.redAccent,
+                    isMyAlert ? Icons.person_pin_circle : (isResponding ? Icons.verified_user : Icons.warning_amber_rounded),
+                    color: isMyAlert ? Colors.blueAccent : (isResponding ? Colors.greenAccent : Colors.redAccent),
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    isResponding ? "HELP ON THE WAY" : "DISTRESS SIGNAL",
+                    isMyAlert ? "YOUR SIGNAL" : (isResponding ? "HELP ON THE WAY" : "DISTRESS SIGNAL"),
                     style: TextStyle(
-                      color: isResponding ? Colors.greenAccent : Colors.redAccent,
+                      color: isMyAlert ? Colors.blueAccent : (isResponding ? Colors.greenAccent : Colors.redAccent),
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -145,28 +158,40 @@ class _AlertsPageState extends State<AlertsPage> {
             style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4),
           ),
           const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.directions_run, color: Colors.white, size: 18),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isResponding ? const Color(0xFF334155) : const Color(0xFF2563EB),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 0,
-              ),
-              onPressed: () {
-                // Navigate back to home to see map
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (context) => const HomePage()),
-                );
-              },
-              label: Text(
-                isResponding ? "VIEW ON MAP" : "TRACK LOCATION",
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-            ),
+          
+          Row(
+            children: [
+              if (isMyAlert)
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                    onPressed: () async {
+                      await FirebaseFirestore.instance.collection('emergency_alerts').doc(docId).update({'status': 'RESOLVED'});
+                    },
+                    child: const Text("I AM SAFE NOW", style: TextStyle(color: Colors.white)),
+                  ),
+                )
+              else 
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.map, color: Colors.white, size: 18),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () {
+                      // Navigate to map and show the location
+                      Navigator.pushAndRemoveUntil(
+                        context, 
+                        MaterialPageRoute(builder: (context) => const HomePage()),
+                        (route) => false
+                      );
+                    },
+                    label: const Text("VIEW ON MAP", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -204,26 +229,14 @@ class _AlertsPageState extends State<AlertsPage> {
       ],
       onTap: (index) {
         if (index == _currentIndex) return;
-
         Widget nextPage;
         switch (index) {
-          case 0:
-            nextPage = const HomePage();
-            break;
-          case 2:
-            nextPage = const ReportPage();
-            break;
-          case 3:
-            nextPage = const ProfilePage();
-            break;
-          default:
-            nextPage = const HomePage();
+          case 0: nextPage = const HomePage(); break;
+          case 2: nextPage = const ReportPage(); break;
+          case 3: nextPage = const ProfilePage(); break;
+          default: nextPage = const HomePage();
         }
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => nextPage),
-        );
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => nextPage));
       },
     );
   }
