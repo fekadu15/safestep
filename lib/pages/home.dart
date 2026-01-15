@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:convert'; // JSON decoding
-import 'package:http/http.dart' as http; // API calls
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +8,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:safestep/pages/report.dart';
 import 'package:safestep/pages/alerts.dart';
@@ -34,7 +35,7 @@ class _HomePageState extends State<HomePage> {
   String _currentAddress = " where to go...";
   bool _isLoading = true;
   bool _showRouteInputs = false;
-  bool _isCalculatingRoute = false; // For loading spinner
+  bool _isCalculatingRoute = false;
 
   StreamSubscription<Position>? _positionStream;
   StreamSubscription<QuerySnapshot>? _emergencySubscription;
@@ -55,19 +56,103 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
+  // --- ADD CONTACT DIALOG (Restored & Integrated) ---
+  void _showAddContactDialog() {
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Add Safe Contact", style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                hintText: "Name",
+                hintStyle: TextStyle(color: Colors.white38),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                hintText: "Phone Number",
+                hintStyle: TextStyle(color: Colors.white38),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
+          TextButton(
+            onPressed: () async {
+              if (nameCtrl.text.isNotEmpty && phoneCtrl.text.isNotEmpty) {
+                await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(user?.uid)
+                    .collection('contacts')
+                    .add({
+                  'name': nameCtrl.text.trim(),
+                  'phone': phoneCtrl.text.trim(),
+                });
+                if (mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text("SAVE", style: TextStyle(color: Colors.blueAccent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- SAFE CIRCLE ACTIONS (CALL & DELETE) ---
+  Future<void> _makePhoneCall(String? phoneNumber) async {
+    if (phoneNumber == null || phoneNumber.isEmpty) return;
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    }
+  }
+
+  void _confirmDeleteContact(String docId, String name) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: Text("Remove $name?", style: const TextStyle(color: Colors.white)),
+        content: const Text("Remove this person from your Safe Circle?", style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
+          TextButton(
+            onPressed: () {
+              FirebaseFirestore.instance.collection('users').doc(user?.uid).collection('contacts').doc(docId).delete();
+              Navigator.pop(context);
+            }, 
+            child: const Text("REMOVE", style: TextStyle(color: Colors.red))
+          ),
+        ],
+      ),
+    );
+  }
+
   // --- STREET-FOLLOWING ROUTE LOGIC (OSRM) ---
   Future<void> _getStreetRoute(LatLng start, LatLng end) async {
     setState(() => _isCalculatingRoute = true);
-
-    final url =
-        'https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson';
+    final url = 'https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson';
 
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final List<dynamic> coords = data['routes'][0]['geometry']['coordinates'];
-
         setState(() {
           _routePoints = coords.map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
         });
@@ -92,7 +177,7 @@ class _HomePageState extends State<HomePage> {
           hazardLoc.latitude, hazardLoc.longitude
         );
 
-        if (distance < 500) { // If hazard is within 500 meters
+        if (distance < 500) { 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               backgroundColor: Colors.orange.shade900,
@@ -108,7 +193,7 @@ class _HomePageState extends State<HomePage> {
               duration: const Duration(seconds: 6),
             )
           );
-          break; // Show only one warning
+          break;
         }
       }
     });
@@ -159,7 +244,6 @@ class _HomePageState extends State<HomePage> {
               .where('status', whereIn: const ['ACTIVE', 'RESPONDING']).snapshots(),
           builder: (context, sosSnap) {
             List<Marker> markers = [];
-
             markers.add(Marker(
               point: _currentLocation,
               width: 60, height: 60,
@@ -225,7 +309,6 @@ class _HomePageState extends State<HomePage> {
 
   void _showEmergencyDetails(Map<String, dynamic> data, String docId) {
     final bool isAlreadyResponding = data['status'] == 'RESPONDING';
-
     showModalBottomSheet(
       context: context,
       backgroundColor: isAlreadyResponding ? const Color(0xFF064e3b) : const Color(0xFF450a0a),
@@ -276,7 +359,7 @@ class _HomePageState extends State<HomePage> {
     if (mounted) {
       Navigator.pop(context);
       await _getStreetRoute(_currentLocation, victimLoc); 
-      _checkRouteSafety(victimLoc); // Check if rescue path is safe
+      _checkRouteSafety(victimLoc); 
 
       _mapController.fitCamera(
         CameraFit.bounds(
@@ -290,7 +373,6 @@ class _HomePageState extends State<HomePage> {
   Future<void> _initLocation() async {
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
-
     Position position = await Geolocator.getCurrentPosition();
     if (mounted) {
       setState(() {
@@ -300,13 +382,8 @@ class _HomePageState extends State<HomePage> {
       _mapController.move(_currentLocation, 17);
       _updateAddress(position.latitude, position.longitude);
     }
-
     _positionStream = Geolocator.getPositionStream().listen((pos) {
-      if (mounted) {
-        setState(() {
-          _currentLocation = LatLng(pos.latitude, pos.longitude);
-        });
-      }
+      if (mounted) setState(() => _currentLocation = LatLng(pos.latitude, pos.longitude));
     });
   }
 
@@ -324,10 +401,8 @@ class _HomePageState extends State<HomePage> {
       if (s.isNotEmpty && d.isNotEmpty) {
         final start = LatLng(s.first.latitude, s.first.longitude);
         final end = LatLng(d.first.latitude, d.first.longitude);
-
         await _getStreetRoute(start, end);
-        _checkRouteSafety(end); // NEW SAFETY CHECK CALL
-
+        _checkRouteSafety(end);
         setState(() => _showRouteInputs = false);
         _mapController.fitCamera(CameraFit.bounds(bounds: LatLngBounds.fromPoints(_routePoints), padding: const EdgeInsets.all(50)));
       }
@@ -362,11 +437,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                     if (_routePoints.isNotEmpty)
                       PolylineLayer(polylines: [
-                        Polyline(
-                            points: _routePoints,
-                            color: Colors.blueAccent,
-                            strokeWidth: 5,
-                            strokeCap: StrokeCap.round)
+                        Polyline(points: _routePoints, color: Colors.blueAccent, strokeWidth: 5, strokeCap: StrokeCap.round)
                       ]),
                     _buildMarkersLayer(),
                   ],
@@ -437,7 +508,6 @@ class _HomePageState extends State<HomePage> {
               builder: (context, snapshot) {
                 final userData = snapshot.data?.data() as Map<String, dynamic>?;
                 final photoUrl = userData?['photoUrl'];
-
                 return GestureDetector(
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfilePage())),
                   child: CircleAvatar(
@@ -456,7 +526,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildSafeCircleStream() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      height: 90,
+      height: 100,
       child: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).collection('contacts').snapshots(),
         builder: (context, snapshot) {
@@ -464,8 +534,16 @@ class _HomePageState extends State<HomePage> {
           return ListView(
             scrollDirection: Axis.horizontal,
             children: [
-              _avatar("Add", Icons.add, isAdd: true),
-              ...docs.map((doc) => _avatar(doc['name'], Icons.person)),
+              _avatar("Add", Icons.add, isAdd: true, onTap: _showAddContactDialog),
+              ...docs.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return _avatar(
+                  data['name'] ?? "User", 
+                  Icons.person,
+                  onTap: () => _makePhoneCall(data['phone']),
+                  onLongPress: () => _confirmDeleteContact(doc.id, data['name'] ?? "Contact"),
+                );
+              }),
             ],
           );
         },
@@ -473,14 +551,22 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _avatar(String name, IconData icon, {bool isAdd = false}) {
+  Widget _avatar(String name, IconData icon, {bool isAdd = false, VoidCallback? onTap, VoidCallback? onLongPress}) {
     return Padding(
       padding: const EdgeInsets.only(right: 20),
-      child: Column(children: [
-        CircleAvatar(radius: 28, backgroundColor: isAdd ? Colors.white10 : Colors.blue.withOpacity(0.15), child: Icon(icon, color: Colors.white)),
-        const SizedBox(height: 4),
-        Text(name, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-      ]),
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Column(children: [
+          CircleAvatar(
+            radius: 28, 
+            backgroundColor: isAdd ? Colors.white10 : Colors.blue.withOpacity(0.15), 
+            child: Icon(icon, color: isAdd ? Colors.white : Colors.blueAccent)
+          ),
+          const SizedBox(height: 6),
+          Text(name, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+        ]),
+      ),
     );
   }
 
